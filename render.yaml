@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: multi-client-rag-backend
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: AZURE_OPENAI_API_KEY
+        value: placeholder
+      - key: AZURE_SEARCH_ENDPOINT
+        value: https://placeholder.search.windows.net
+      - key: AZURE_SEARCH_KEY
+        value: placeholder
+      - key: DEBUG
+        value: false
