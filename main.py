@@ -31,6 +31,9 @@ from core.intelligent_suggestions import IntelligentSuggestionEngine
 from core.data_exporter import RAGDataExporter
 from core.client_configuration_manager import ClientConfigurationManager
 
+# Import Personas System
+from personas.persona_system import ComprehensivePersonaSystem
+
 # Pydantic models for API
 class MultimodalQuery(BaseModel):
     """Multimodal query input"""
@@ -71,6 +74,57 @@ class ExportQuery(BaseModel):
     format_type: str = Field("excel", description="Export format: excel, csv, json, html")
     include_metadata: bool = Field(True, description="Include metadata in export")
 
+# Persona System Models
+class PersonaChatQuery(BaseModel):
+    """Persona chat query"""
+    message: str
+    session_id: Optional[str] = None
+    persona_id: Optional[str] = None
+
+class PersonaSurveyQuery(BaseModel):
+    """Mass survey query"""
+    questions: List[str]
+    persona_ids: Optional[List[str]] = None
+    max_personas: Optional[int] = 20
+
+class PersonaFocusGroupQuery(BaseModel):
+    """Focus group query"""
+    topic: str
+    persona_ids: Optional[List[str]] = None
+    group_size: Optional[int] = 8
+
+class PersonaValidationQuery(BaseModel):
+    """Persona validation query"""
+    persona_count: Optional[int] = 50
+    diversity_target: Optional[float] = 0.8
+    quality_threshold: Optional[float] = 0.7
+
+class EnhancedPersonaGenerationQuery(BaseModel):
+    """Enhanced persona generation with advanced methodologies"""
+    persona_count: Optional[int] = 50
+    study_level: Optional[str] = "exploratory_study"  # pilot_study, exploratory_study, sensitivity_analysis
+    use_implicit_demographics: Optional[bool] = True
+    include_temporal_context: Optional[bool] = True
+    generate_interview_transcripts: Optional[bool] = False
+
+class EnhancedChatQuery(BaseModel):
+    """Enhanced chat with advanced methodologies"""
+    message: str
+    session_id: str
+    use_temperature_optimization: Optional[bool] = True
+    use_temporal_context: Optional[bool] = True
+
+class StudyValidationQuery(BaseModel):
+    """Study readiness validation query"""
+    study_level: str  # pilot_study, exploratory_study, sensitivity_analysis
+    persona_ids: Optional[List[str]] = None
+
+class SyntheticChatQuery(BaseModel):
+    """Synthetic archetype chat query"""
+    message: str
+    archetype: str  # consumer, business, expert, etc.
+    context: Optional[Dict[str, Any]] = None
+
 class MultiClientRAGSystem:
     """Multi-Client RAG System supporting multiple clients"""
     
@@ -87,10 +141,18 @@ class MultiClientRAGSystem:
         self.suggestion_engine = IntelligentSuggestionEngine()
         self.data_exporter = RAGDataExporter()
         
-        print("🚀 Multi-Client RAG System initialized")
-        print(f"   📊 Supported clients: {', '.join(self.clients_config.keys())}")
-        print(f"   🎯 Vector stores configured for all clients")
-        print(f"   🔍 Azure AI Search indexes: {len(self.clients_config)} indexes")
+        # Initialize Personas System
+        try:
+            self.persona_system = ComprehensivePersonaSystem()
+            print("[SUCCESS] Personas System initialized")
+        except Exception as e:
+            print(f"[WARNING] Personas System initialization failed: {e}")
+            self.persona_system = None
+        
+        print("[STARTUP] Multi-Client RAG System initialized")
+        print(f"[INFO] Supported clients: {', '.join(self.clients_config.keys())}")
+        print(f"[INFO] Vector stores configured for all clients")
+        print(f"[INFO] Azure AI Search indexes: {len(self.clients_config)} indexes")
 
     def get_client_config(self, client_id: str) -> Dict[str, Any]:
         """Get configuration for specific client"""
@@ -542,6 +604,582 @@ async def client_export_data_endpoint(client_id: str, query: ExportQuery):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Export failed for {client_id}: {str(e)}")
+
+# ===== PERSONA SYSTEM ENDPOINTS =====
+# Multi-client synthetic persona generation and interaction endpoints
+# Each client has isolated persona environments
+
+@app.post("/api/{client_id}/persona-chat")
+async def client_persona_chat_endpoint(client_id: str, query: PersonaChatQuery):
+    """
+    1:1 Conversation with Synthetic Persona (Multi-Client)
+    Start or continue conversation with client-specific persona
+    """
+    if not rag_system:
+        raise HTTPException(status_code=503, detail="RAG system not initialized")
+    
+    if not rag_system.persona_system:
+        raise HTTPException(status_code=503, detail="Persona system not available")
+    
+    try:
+        # Validate client
+        client_config = rag_system.get_client_config(client_id)
+        
+        # If no session_id provided, start new conversation
+        if not query.session_id:
+            if not query.persona_id:
+                # Generate a new persona if none specified
+                persona_result = rag_system.persona_system.generate_validated_personas(
+                    count=1, diversity_target=0.8, quality_threshold=0.7
+                )
+                
+                if not persona_result["success"]:
+                    raise HTTPException(status_code=400, detail="Failed to generate persona")
+                
+                persona_id = persona_result["personas"][0]["id"]
+            else:
+                persona_id = query.persona_id
+            
+            # Start new conversation with client context
+            session_id = await rag_system.persona_system.start_persona_conversation(
+                persona_id, "chat", {
+                    "user_initiated": True, 
+                    "client_id": client_id,
+                    "client_context": client_config
+                }
+            )
+            
+            return {
+                "message": "Conversation started",
+                "session_id": session_id,
+                "persona_id": persona_id,
+                "client_id": client_id,
+                "persona_profile": {
+                    "age": rag_system.persona_system.generated_personas[persona_id]["characteristics"]["age"],
+                    "gender": rag_system.persona_system.generated_personas[persona_id]["characteristics"]["gender"],
+                    "location": rag_system.persona_system.generated_personas[persona_id]["characteristics"]["geographic_region"],
+                    "service_type": rag_system.persona_system.generated_personas[persona_id]["characteristics"]["service_type"]
+                },
+                "instructions": "Send your message using this session_id to continue the conversation"
+            }
+        
+        else:
+            # Continue existing conversation
+            response = await rag_system.persona_system.send_message_to_persona(
+                query.session_id, query.message
+            )
+            
+            return {
+                "client_id": client_id,
+                "session_id": query.session_id,
+                "persona_response": response["response"],
+                "message_count": response["message_count"],
+                "validation": response["validation"],
+                "rag_context_used": response["rag_context_used"],
+                "persona_consistency": response["persona_consistency"],
+                "timestamp": datetime.now().isoformat()
+            }
+            
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in persona chat for {client_id}: {str(e)}")
+
+@app.post("/api/{client_id}/persona-survey")
+async def client_persona_survey_endpoint(client_id: str, query: PersonaSurveyQuery):
+    """
+    Mass Survey with Multiple Personas (Multi-Client)
+    Conduct survey with multiple synthetic personas for specific client
+    """
+    if not rag_system:
+        raise HTTPException(status_code=503, detail="RAG system not initialized")
+        
+    if not rag_system.persona_system:
+        raise HTTPException(status_code=503, detail="Persona system not available")
+    
+    try:
+        # Validate client
+        client_config = rag_system.get_client_config(client_id)
+        
+        # Generate or use existing personas
+        if not query.persona_ids:
+            # Generate new personas for this survey
+            persona_result = rag_system.persona_system.generate_validated_personas(
+                count=query.max_personas or 20,
+                diversity_target=0.8,
+                quality_threshold=0.7
+            )
+            
+            if not persona_result["success"]:
+                raise HTTPException(status_code=400, detail="Failed to generate personas for survey")
+            
+            persona_ids = [p["id"] for p in persona_result["personas"]]
+        else:
+            persona_ids = query.persona_ids
+        
+        # Conduct mass survey
+        survey_result = await rag_system.persona_system.conduct_mass_survey(
+            persona_ids, query.questions, {
+                "client_id": client_id,
+                "client_context": client_config
+            }
+        )
+        
+        return {
+            "client_id": client_id,
+            "survey_id": survey_result["survey_id"],
+            "total_personas": len(persona_ids),
+            "questions_asked": len(query.questions),
+            "responses": survey_result["responses"],
+            "summary_insights": survey_result["insights"],
+            "completion_rate": survey_result["completion_rate"],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Survey failed for {client_id}: {str(e)}")
+
+@app.post("/api/{client_id}/persona-focus-group")
+async def client_persona_focus_group_endpoint(client_id: str, query: PersonaFocusGroupQuery):
+    """
+    Simulated Focus Group Discussion (Multi-Client)
+    Simulate focus group with diverse synthetic personas for specific client
+    """
+    if not rag_system:
+        raise HTTPException(status_code=503, detail="RAG system not initialized")
+        
+    if not rag_system.persona_system:
+        raise HTTPException(status_code=503, detail="Persona system not available")
+    
+    try:
+        # Validate client
+        client_config = rag_system.get_client_config(client_id)
+        
+        # Generate or use existing personas
+        if not query.persona_ids:
+            # Generate diverse personas for focus group
+            persona_result = rag_system.persona_system.generate_validated_personas(
+                count=query.group_size or 8,
+                diversity_target=0.9,  # Higher diversity for focus groups
+                quality_threshold=0.8
+            )
+            
+            if not persona_result["success"]:
+                raise HTTPException(status_code=400, detail="Failed to generate personas for focus group")
+            
+            persona_ids = [p["id"] for p in persona_result["personas"]]
+        else:
+            persona_ids = query.persona_ids[:query.group_size or 8]
+        
+        # Conduct focus group
+        focus_group_result = await rag_system.persona_system.conduct_focus_group(
+            persona_ids, query.topic, {
+                "client_id": client_id,
+                "client_context": client_config,
+                "session_type": "focus_group"
+            }
+        )
+        
+        return {
+            "client_id": client_id,
+            "focus_group_id": focus_group_result["session_id"],
+            "topic": query.topic,
+            "participants": len(persona_ids),
+            "discussion_rounds": focus_group_result["rounds"],
+            "key_insights": focus_group_result["insights"],
+            "consensus_points": focus_group_result["consensus"],
+            "diverse_opinions": focus_group_result["diversity_metrics"],
+            "transcript": focus_group_result["transcript"],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Focus group failed for {client_id}: {str(e)}")
+
+@app.post("/api/{client_id}/persona-validate")
+async def client_persona_validate_endpoint(client_id: str, query: PersonaValidationQuery):
+    """
+    Generate and Validate Persona Batches (Multi-Client)
+    Generate new personas with comprehensive bias detection and validation for specific client
+    """
+    if not rag_system:
+        raise HTTPException(status_code=503, detail="RAG system not initialized")
+        
+    if not rag_system.persona_system:
+        raise HTTPException(status_code=503, detail="Persona system not available")
+    
+    try:
+        # Validate client
+        client_config = rag_system.get_client_config(client_id)
+        
+        # Generate and validate personas
+        validation_result = rag_system.persona_system.generate_validated_personas(
+            count=query.persona_count or 50,
+            diversity_target=query.diversity_target or 0.8,
+            quality_threshold=query.quality_threshold or 0.7,
+            client_context={
+                "client_id": client_id,
+                "client_config": client_config
+            }
+        )
+        
+        return {
+            "client_id": client_id,
+            "validation_successful": validation_result["success"],
+            "total_generated": validation_result["total_generated"],
+            "total_validated": validation_result["total_validated"],
+            "validation_rate": validation_result["validation_rate"],
+            "diversity_achieved": validation_result["diversity_metrics"]["overall_diversity"],
+            "quality_metrics": validation_result["quality_metrics"],
+            "bias_detection": validation_result["bias_analysis"],
+            "personas": validation_result["personas"],
+            "recommendations": validation_result["recommendations"],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Persona validation failed for {client_id}: {str(e)}")
+
+@app.get("/api/{client_id}/persona-export")
+async def client_persona_export_endpoint(
+    client_id: str,
+    format: str = "json",
+    persona_ids: Optional[str] = None
+):
+    """
+    Export Generated Personas (Multi-Client)
+    Export personas in various formats for specific client
+    """
+    if not rag_system:
+        raise HTTPException(status_code=503, detail="RAG system not initialized")
+        
+    if not rag_system.persona_system:
+        raise HTTPException(status_code=503, detail="Persona system not available")
+    
+    try:
+        # Validate client
+        client_config = rag_system.get_client_config(client_id)
+        
+        # Parse persona IDs if provided
+        if persona_ids:
+            persona_id_list = persona_ids.split(",")
+        else:
+            # Export all personas for this client (if we implement client-specific storage)
+            persona_id_list = list(rag_system.persona_system.generated_personas.keys())
+        
+        # Export personas
+        export_result = rag_system.persona_system.export_personas(
+            persona_id_list, 
+            format=format,
+            client_context={
+                "client_id": client_id,
+                "client_config": client_config
+            }
+        )
+        
+        return {
+            "client_id": client_id,
+            "export_format": format,
+            "total_exported": len(persona_id_list),
+            "export_data": export_result["data"],
+            "metadata": export_result["metadata"],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Persona export failed for {client_id}: {str(e)}")
+
+@app.post("/api/{client_id}/persona-enhanced-generate")
+async def client_enhanced_persona_generation_endpoint(client_id: str, query: EnhancedPersonaGenerationQuery):
+    """
+    Enhanced Persona Generation with Advanced Methodologies (Multi-Client)
+    Uses context-rich prompting, temperature optimization, implicit demographics,
+    temporal context, and staged validation for specific client
+    """
+    if not rag_system:
+        raise HTTPException(status_code=503, detail="RAG system not initialized")
+        
+    if not rag_system.persona_system:
+        raise HTTPException(status_code=503, detail="Persona system not available")
+    
+    try:
+        # Validate client
+        client_config = rag_system.get_client_config(client_id)
+        
+        # Enhanced persona generation with all methodologies
+        generation_result = await rag_system.persona_system.enhanced_persona_generation(
+            count=query.persona_count or 50,
+            study_level=query.study_level or "exploratory_study",
+            use_implicit_demographics=query.use_implicit_demographics,
+            include_temporal_context=query.include_temporal_context,
+            generate_interview_transcripts=query.generate_interview_transcripts,
+            client_context={
+                "client_id": client_id,
+                "client_config": client_config
+            }
+        )
+        
+        return {
+            "client_id": client_id,
+            "generation_successful": generation_result["success"],
+            "study_level": query.study_level,
+            "methodology_status": {
+                "context_rich_prompting": generation_result["methodology_status"]["context_rich_prompting"],
+                "temperature_optimization": generation_result["methodology_status"]["temperature_optimization"],
+                "implicit_demographics": generation_result["methodology_status"]["implicit_demographics"],
+                "temporal_context": generation_result["methodology_status"]["temporal_context"],
+                "staged_validation": generation_result["methodology_status"]["staged_validation"]
+            },
+            "personas_generated": generation_result["total_generated"],
+            "quality_metrics": generation_result["quality_metrics"],
+            "diversity_analysis": generation_result["diversity_analysis"],
+            "validation_summary": generation_result["validation_summary"],
+            "personas": generation_result["personas"],
+            "interview_transcripts": generation_result.get("interview_transcripts", []),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Enhanced persona generation failed for {client_id}: {str(e)}")
+
+@app.post("/api/{client_id}/synthetic-chat")
+async def client_synthetic_archetype_chat(client_id: str, query: SyntheticChatQuery):
+    """
+    Synthetic Archetype Chat (Multi-Client)
+    Chat with pre-defined synthetic archetypes (consumer, business, expert) for specific client
+    """
+    if not rag_system:
+        raise HTTPException(status_code=503, detail="RAG system not initialized")
+        
+    if not rag_system.persona_system:
+        raise HTTPException(status_code=503, detail="Persona system not available")
+    
+    try:
+        # Validate client
+        client_config = rag_system.get_client_config(client_id)
+        
+        # Chat with synthetic archetype
+        chat_result = await rag_system.persona_system.synthetic_archetype_chat(
+            archetype=query.archetype,
+            message=query.message,
+            context={
+                "client_id": client_id,
+                "client_config": client_config,
+                **(query.context or {})
+            }
+        )
+        
+        return {
+            "client_id": client_id,
+            "archetype": query.archetype,
+            "user_message": query.message,
+            "archetype_response": chat_result["response"],
+            "archetype_profile": chat_result["profile"],
+            "confidence_score": chat_result["confidence"],
+            "reasoning": chat_result["reasoning"],
+            "rag_context_used": chat_result["rag_context_used"],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Synthetic chat failed for {client_id}: {str(e)}")
+
+# ===== DOCUMENT MANAGEMENT ENDPOINTS =====
+
+@app.post("/api/{client_id}/add-document")
+async def client_add_document_endpoint(
+    client_id: str,
+    document_text: str = Form(...),
+    title: str = Form(...),
+    source: Optional[str] = Form(None),
+    metadata: Optional[str] = Form(None)
+):
+    """
+    Add Document to Client-Specific Index
+    Upload and index document content for specific client
+    """
+    if not rag_system:
+        raise HTTPException(status_code=503, detail="RAG system not initialized")
+    
+    try:
+        # Validate client
+        client_config = rag_system.get_client_config(client_id)
+        
+        # Parse metadata if provided
+        doc_metadata = {}
+        if metadata:
+            try:
+                doc_metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                doc_metadata = {"raw_metadata": metadata}
+        
+        # Add client context to metadata
+        doc_metadata.update({
+            "client_id": client_id,
+            "client_name": client_config["client_info"]["name"],
+            "upload_timestamp": datetime.now().isoformat(),
+            "title": title,
+            "source": source or "manual_upload"
+        })
+        
+        # Add document to client-specific vector store
+        result = rag_system.vector_store.add_document(
+            client_id=client_id,
+            content=document_text,
+            metadata=doc_metadata
+        )
+        
+        return {
+            "client_id": client_id,
+            "success": True,
+            "document_id": result["document_id"],
+            "title": title,
+            "content_length": len(document_text),
+            "metadata": doc_metadata,
+            "indexed": result["indexed"],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Document upload failed for {client_id}: {str(e)}")
+
+@app.post("/api/{client_id}/upload-file")
+async def client_upload_file_endpoint(
+    client_id: str,
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    source: Optional[str] = Form(None),
+    metadata: Optional[str] = Form(None)
+):
+    """
+    Upload File to Client-Specific Index
+    Upload and process file (PDF, DOCX, TXT) for specific client
+    """
+    if not rag_system:
+        raise HTTPException(status_code=503, detail="RAG system not initialized")
+    
+    try:
+        # Validate client
+        client_config = rag_system.get_client_config(client_id)
+        
+        # Validate file type
+        allowed_types = {".txt", ".pdf", ".docx", ".md"}
+        file_extension = os.path.splitext(file.filename.lower())[1] if file.filename else ""
+        
+        if file_extension not in allowed_types:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"File type {file_extension} not supported. Allowed: {allowed_types}"
+            )
+        
+        # Read file content
+        file_content = await file.read()
+        
+        # Process file based on type
+        if file_extension == ".txt" or file_extension == ".md":
+            document_text = file_content.decode('utf-8')
+        elif file_extension == ".pdf":
+            # Would need PDF processing library
+            raise HTTPException(status_code=501, detail="PDF processing not implemented yet")
+        elif file_extension == ".docx":
+            # Would need DOCX processing library
+            raise HTTPException(status_code=501, detail="DOCX processing not implemented yet")
+        
+        # Parse metadata
+        doc_metadata = {}
+        if metadata:
+            try:
+                doc_metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                doc_metadata = {"raw_metadata": metadata}
+        
+        # Add file and client context
+        doc_metadata.update({
+            "client_id": client_id,
+            "client_name": client_config["client_info"]["name"],
+            "filename": file.filename,
+            "file_size": len(file_content),
+            "file_type": file_extension,
+            "upload_timestamp": datetime.now().isoformat(),
+            "title": title or file.filename,
+            "source": source or "file_upload"
+        })
+        
+        # Add document to client-specific vector store
+        result = rag_system.vector_store.add_document(
+            client_id=client_id,
+            content=document_text,
+            metadata=doc_metadata
+        )
+        
+        return {
+            "client_id": client_id,
+            "success": True,
+            "document_id": result["document_id"],
+            "filename": file.filename,
+            "file_size": len(file_content),
+            "content_length": len(document_text),
+            "metadata": doc_metadata,
+            "indexed": result["indexed"],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File upload failed for {client_id}: {str(e)}")
+
+# ===== IMAGE GENERATION ENDPOINT =====
+
+@app.post("/api/{client_id}/generate-image")
+async def client_generate_image_endpoint(client_id: str, request: dict):
+    """
+    Generate Image for Client
+    Generate images using DALL-E with client-specific context
+    """
+    if not rag_system:
+        raise HTTPException(status_code=503, detail="RAG system not initialized")
+    
+    try:
+        # Validate client
+        client_config = rag_system.get_client_config(client_id)
+        
+        prompt = request.get("prompt", "")
+        if not prompt:
+            raise HTTPException(status_code=400, detail="Prompt is required")
+        
+        # Add client context to prompt if needed
+        client_context = f"For {client_config['client_info']['name']} ({client_config['client_info']['industry']}): "
+        contextual_prompt = client_context + prompt
+        
+        # Generate image using multimodal output generator
+        if rag_system.output_generator:
+            image_result = await rag_system.output_generator.generate_images(
+                prompt=contextual_prompt,
+                client_id=client_id,
+                count=request.get("count", 1),
+                size=request.get("size", "1024x1024"),
+                style=request.get("style", "natural")
+            )
+            
+            return {
+                "client_id": client_id,
+                "success": True,
+                "prompt": prompt,
+                "contextual_prompt": contextual_prompt,
+                "images": image_result["images"],
+                "count": len(image_result["images"]),
+                "metadata": {
+                    "client_name": client_config["client_info"]["name"],
+                    "industry": client_config["client_info"]["industry"],
+                    "size": request.get("size", "1024x1024"),
+                    "style": request.get("style", "natural")
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=503, detail="Image generation not available")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image generation failed for {client_id}: {str(e)}")
 
 if __name__ == "__main__":
     # Create data directory
