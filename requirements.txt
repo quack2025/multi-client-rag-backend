@@ -1,7 +1,7 @@
 # Multi-Client RAG System - Requirements (Based on proven Tigo deployment)
 
 # FastAPI and web framework
-fastapi==0.104.1
+fastapi==0.116.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 
@@ -13,8 +13,8 @@ requests==2.31.0
 
 # Azure services  
 openai>=1.0.0
-azure-search-documents>=11.4.0
-azure-core>=1.29.0
+azure-search-documents==11.5.3
+azure-core==1.35.0
 azure-identity>=1.15.0
 
 # Data processing and ML
@@ -46,8 +46,6 @@ anyio==4.9.0
 astrapy==2.0.1
 attrs==25.3.0
 azure-common==1.1.28
-azure-core==1.35.0
-azure-search-documents==11.5.3
 banks==2.2.0
 certifi==2025.1.31
 charset-normalizer==3.4.3
@@ -61,7 +59,6 @@ deprecation==2.1.0
 dirtyjson==1.0.8
 distro==1.9.0
 dnspython==2.7.0
-fastapi==0.116.1
 filetype==1.2.0
 fonttools==4.57.0
 frozenlist==1.7.0
