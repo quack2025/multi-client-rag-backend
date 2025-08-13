@@ -363,20 +363,32 @@ async def root():
 def initialize_multi_client_rag_system():
     """Initialize multi-client RAG system with fallback"""
     try:
-        required_vars = ["AZURE_OPENAI_API_KEY", "AZURE_SEARCH_SERVICE", "AZURE_SEARCH_KEY"]
+        print("[INIT] Starting Multi-Client RAG System initialization...")
+        
+        # Check required environment variables
+        required_vars = ["AZURE_OPENAI_API_KEY", "AZURE_SEARCH_SERVICE_NAME", "AZURE_SEARCH_ADMIN_KEY"]
         missing_vars = [var for var in required_vars if not os.getenv(var)]
         
         if missing_vars:
             print(f"[WARNING] Missing environment variables: {missing_vars}")
+            print("[INFO] Available environment variables:")
+            for key in os.environ.keys():
+                if "AZURE" in key or "INDEX" in key:
+                    print(f"  - {key}: {'SET' if os.getenv(key) else 'NOT SET'}")
             print("[INFO] Running in minimal mode without full RAG functionality")
             return None
-            
+        
+        print("[INFO] All required environment variables found")
+        print("[INFO] Initializing MultiClientRAGSystem...")
+        
         rag_system = MultiClientRAGSystem()
         print("[SUCCESS] Multi-client RAG system initialization successful")
         return rag_system
         
     except Exception as e:
         print(f"[ERROR] Multi-client RAG system initialization failed: {e}")
+        import traceback
+        print(f"[ERROR] Traceback: {traceback.format_exc()}")
         print("[INFO] Running in minimal mode")
         return None
 
