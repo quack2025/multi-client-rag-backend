@@ -162,7 +162,7 @@ class RAGDataExporter:
                 
                 <div class="answer">
                     <h2>Respuesta</h2>
-                    <p>{rag_response.get('answer', '').replace('\n', '<br>')}</p>
+                    <p>{rag_response.get('answer', '').replace(chr(10), '<br>')}</p>
                 </div>
             """
             
